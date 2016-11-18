@@ -36,6 +36,9 @@ api = tweepy.API(auth)
 
 # for each Twitter handle, grab as many tweets as possible
 for handle in args.handles:
+    print '\n'
+    print 'Getting Tweets for @' + handle
+    print '\n'
     
     # storing all tweets for this Twitter handle
     tweets = []
@@ -71,10 +74,9 @@ for handle in args.handles:
         print len(tweets), 'tweets downloaded so far'
     
     # transform the tweepy tweets into a 2D array that will populate a csv	
-	csv_tweets = [[tweet.id_str, tweet.created_at, tweet.text.encode("utf-8"), tweet.favorite_count, tweet.retweet_count] for tweet in tweets]
+	csv_tweets = [[tweet.created_at, tweet.text.encode("utf-8"), tweet.favorite_count, tweet.retweet_count] for tweet in tweets]
 	
 	# write to a csv file	
 	with open('../data/%s_tweets.csv' % handle, 'wb') as f:
 		writer = csv.writer(f)
-		writer.writerow(['id', 'created_at', 'text', 'favorites', 'retweets'])
 		writer.writerows(csv_tweets)

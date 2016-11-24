@@ -9,11 +9,8 @@ from __future__ import division
 from sklearn.linear_model import LinearRegression
 from sklearn.svm import SVR
 from sklearn.neural_network import MLPRegressor
-from sklearn.feature_extraction.text import HashingVectorizer, CountVectorizer
-
-from nltk.tokenize import TweetTokenizer
-
-from collections import defaultdict
+from sklearn.feature_extraction.text import HashingVectorizer, CountVectorizer, TfidfTransformer
+from sklearn.metrics import mean_absolute_error
 
 import numpy as np
 
@@ -45,10 +42,9 @@ def remove_retweets(tweets):
     return not_retweets
     
     
-def parse_dataset(dataset, regression_value='likes'):
+def get_features_count_vectorizer(tweets_text, regression_value):
     '''
-    Function which reduces a dataset of tweets into its constituent feature 
-    representation. This is a first example; there are many possible representations
+    Function which reduces a dataset of tweets into a feature vectorizer / occurrence counter.
     
     input:
         dataset: filename of the csv file contains tweet data
@@ -56,45 +52,21 @@ def parse_dataset(dataset, regression_value='likes'):
     output:
         datapoints (with some chosen feature representation) and regression labels 
     '''
-    
-    # open the data file associated with the handle passed in as a parameter
-    with open('../data/' + dataset, 'rb') as f:
-        tweets_list = list(csv.reader(f))
-    
-    # store the tweet datetime in an array
-    # datetimes = np.array([ tweets_list[i][0] for i in range(len(tweets_list)) ])
-    
-    # create a TweetTokenizer object, courtesy of NLTK
-    tknzr = TweetTokenizer(preserve_case=False, strip_handles=True)
     
     # instantiate a count vectorizer to vectorize the dataset of tweet text
-    vectorizer = CountVectorizer(min_df=1   )
-    # get a list of tweet text
-    tweets_text = np.asarray([ tweets_list[i][1] for i in range(len(tweets_list)) ], dtype=str)
+    vectorizer = CountVectorizer(min_df=1)
     
     # fit / transform the dataset using the count vectorizer
-    tweets_transformed = vectorizer.fit_transform(tweets_text)
+    features = vectorizer.fit_transform(tweets_text)
     
-    if regression_value == 'likes':
-        # store the number of likes associated with each tweet in an array
-        likes = np.asarray([ tweets_list[i][2] for i in range(len(tweets_list)) ], dtype=np.int64)
-        # return tweets text and likes
-        return (tweets_transformed, likes)
-        
-    elif regression_value == 'retweets':
-        # store the number of retweets associated with each tweet in an array
-        retweets = np.asarray([ tweets_list[i][3] for i in range(len(tweets_list)) ], dtype=np.int64)
-        # return tweets text and retweets
-        return (tweets_transformed, retweets)
-        
-    else:
-        raise NotImplementedError
+    # return the features we've extracted
+    return features
         
         
-def parse_dataset2(dataset, regression_value='likes'):
+def get_features_tfidf(tweets_text, regression_value):
     '''
-    Function which reduces a dataset of tweets into its constituent feature 
-    representation. This is a first example; there are many possible representations
+    Function which reduces a dataset of tweets into count vectorizer representation,
+    then weight these occurrences by their tf-idf index.
     
     input:
         dataset: filename of the csv file contains tweet data
@@ -103,32 +75,84 @@ def parse_dataset2(dataset, regression_value='likes'):
         datapoints (with some chosen feature representation) and regression labels 
     '''
     
-    # open the data file associated with the handle passed in as a parameter
-    with open('../data/' + dataset, 'rb') as f:
-        tweets_list = list(csv.reader(f))
+    # instantiate a count vectorizer to vectorize the dataset of tweet text
+    vectorizer = CountVectorizer(min_df=1)
     
-    # store the tweet datetime in an array
-    # datetimes = np.array([ tweets_list[i][0] for i in range(len(tweets_list)) ])
+    # fit / transform the tweets using the count vectorizer
+    counts = vectorizer.fit_transform(tweets_text)
+    
+    # instantiate a tfidf transformer object
+    tfidf_transformer = TfidfTransformer()
+    
+    # fit it to our count vectorized data and then transform said data
+    features = tfidf_transformer.fit_transform(counts)
+    
+    # return the features we've extracted
+    return features
+        
+        
+def get_features_hashing_vectorizer(tweets_text, regression_value):
+    '''
+    Function which reduces a dataset of tweets into a HashingVectorizer object with
+    2^14 features. 
+    
+    input:
+        dataset: filename of the csv file contains tweet data
+    
+    output:
+        datapoints (with some chosen feature representation) and regression labels 
+    '''
     
     # create a hashing vectorizer to transform the tweets into hash vector representation
-    hv = HashingVectorizer(n_features=2**18)
+    hv = HashingVectorizer(n_features=2**10)
+    
+    # use the hashing vectorizer to transform the raw text into hash vectors
+    features = hv.transform(tweets_text).toarray().astype(np.int32)
+    
+    # return the features we've extracted
+    return features
+        
+        
+def get_features(filename, regression_value, extr_method):
+    '''
+    Delegate function to feature extraction in order to remove duplicate code
+    
+    input:
+        filename: filename which 
+    
+    output:
+        data processed the way the user specified with the 'extr_method' parameter
+    '''
+    
+    # open the data file associated with the handle passed in as a parameter
+    with open('../data/' + filename, 'rb') as f:
+        tweets_list = list(csv.reader(f))
+        
     # get a list of tweet text
     tweets_text = [ tweets_list[i][1] for i in range(len(tweets_list)) ]
     
-    # use the hashing vectorizer to transform the raw text into hash vectors
-    tweets_transformed = hv.transform(tweets_text).toarray().astype(np.int32)
-    
+    # delegate to feature extraction functions based on 'extr_method' parameter
+    if extr_method == 'count vectorizer':
+        features = get_features_count_vectorizer(tweets_text, regression_value)
+    elif extr_method == 'tfidf':
+        features = get_features_tfidf(tweets_text, regression_value)
+    elif extr_method == 'hashing vectorizer':
+        features = get_features_hashing_vectorizer(tweets_text, regression_value)
+    else:
+        raise NotImplementedError
+        
+    # branch based on regression value
     if regression_value == 'likes':
         # store the number of likes associated with each tweet in an array
-        likes = np.array([ tweets_list[i][2] for i in range(len(tweets_list)) ])
+        values = np.array([ tweets_list[i][2] for i in range(len(tweets_list)) ], dtype=np.int64)
         # return tweets text and likes
-        return (tweets_transformed, likes)
+        return (features, values)
         
     elif regression_value == 'retweets':
         # store the number of retweets associated with each tweet in an array
-        retweets = np.array([ tweets_list[i][3] for i in range(len(tweets_list)) ])
+        values = np.array([ tweets_list[i][3] for i in range(len(tweets_list)) ], dtype=np.int64)
         # return tweets text and retweets
-        return (tweets_transformed, retweets)
+        return (features, values)
         
     else:
         raise NotImplementedError
@@ -157,7 +181,7 @@ def split_dataset(dataset, train_perc, test_perc):
     split = int(len(dataset[1]) * (0.01 * train_perc))
     
     # return slices of the dataset based on the calculated split
-    return (dataset[0][:split], dataset[1][:split]), (dataset[0][split:], dataset[1][:split])
+    return (dataset[0][:split], dataset[1][:split]), (dataset[0][split:], dataset[1][split:])
     
 
 def build_model(train_data, model_type, cross_validate=False):
@@ -201,9 +225,9 @@ def build_model(train_data, model_type, cross_validate=False):
             # use default parameters
             model.fit(train_data[0], train_data[1])
         
-    elif model == 'neural network regression':
+    elif model_type == 'neural network regression':
         # create neural network regression model
-        model = MLPRegressor()
+        model = MLPRegressor(early_stopping=True)
         
         if cross_validate:
             # cross-validate the model 
@@ -223,18 +247,36 @@ def build_model(train_data, model_type, cross_validate=False):
     
 def get_score(model, test_data):
     '''
-    This function returns the score of the trained model on the test datset.
+    This function returns the score of the trained model on the test dataset.
     
     input:
         model: the regression model which is fit to the training data
-        test_set: the set of test data which we use to test predictive capacity
-
+        test_data: the set of test data which we use to test predictive capacity
         
     output:
-        score of the trained model on the test set
+        score of the trained model on the test dataset
     '''
     
+    # return the score of the trained model on the test data
     return model.score(test_data[0], test_data[1])
-
-
-
+    
+    
+def get_mean_abs_error(model, test_data):
+    '''
+    This function returns the mean absolute error of the trained model on the test dataset.
+    
+    input:
+        model: the regression model which is fit to the training data
+        test_data: the set of test data which we use to ttest predictive capacity
+        
+    output:
+        mean absolute error of the trained model on the test dataset
+    '''
+    
+    # get true values, predicted labels
+    true_values = test_data[1]
+    pred_values = model.predict(test_data[0])
+    
+    # return mean absolute error of the trained model on the test data
+    return mean_absolute_error(true_values, pred_values)
+    

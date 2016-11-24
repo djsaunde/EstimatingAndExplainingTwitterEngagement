@@ -57,7 +57,7 @@ for handle in args.handles:
     
     # scrape tweets until we can scrape no more
     while scraped_tweets:
-        print 'getting tweets before', oldest_ID
+        print 'Getting tweets before', oldest_ID
         
         # we add the oldest ID parameter in with subsequent requests
         scraped_tweets = api.user_timeline(screen_name=handle, count=200, max_id=oldest_ID)
@@ -71,7 +71,7 @@ for handle in args.handles:
         # we update the pointer to the oldest ID we've scraped so far
         oldest_ID = tweets[-1].id - 1
         
-        print len(tweets), 'tweets downloaded so far'
+        print len(tweets), 'Tweets downloaded so far'
     
     # transform the tweepy tweets into a 2D array that will populate a csv	
 	csv_tweets = [[tweet.created_at, tweet.text.encode("utf-8"), tweet.favorite_count, tweet.retweet_count] for tweet in tweets]

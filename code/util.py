@@ -11,9 +11,10 @@ from sklearn.svm import SVR
 from sklearn.neural_network import MLPRegressor
 from sklearn.feature_extraction.text import HashingVectorizer, CountVectorizer, TfidfTransformer
 from sklearn.metrics import mean_absolute_error
+from sklearn.model_selection import RandomizedSearchCV
 
 import numpy as np
-
+import random
 import csv
 
 
@@ -136,7 +137,7 @@ def get_features(filename, regression_value, extr_method):
         features = get_features_count_vectorizer(tweets_text, regression_value)
     elif extr_method == 'tfidf':
         features = get_features_tfidf(tweets_text, regression_value)
-    elif extr_method == 'hashing vectorizer':
+    elif extr_method == 'hash vectorizer':
         features = get_features_hashing_vectorizer(tweets_text, regression_value)
     else:
         raise NotImplementedError
@@ -156,12 +157,30 @@ def get_features(filename, regression_value, extr_method):
         
     else:
         raise NotImplementedError
+        
+        
+def unison_shuffled_copies(list1, list2):
+    '''
+    This function shuffles two lists with a single permutation / shuffling.
+    
+    input:
+        list1: first list to permute / shuffle
+        list2: second list to permute / shuffle
+        
+    output:
+        tuple of both lists, shuffled
+    '''
+    
+    # get a permutation on the number of elements in the lists
+    p = np.random.permutation(list1.shape[0])
+    # use the permutation to permute the lists
+    return list1[p], list2[p]
     
 
 def split_dataset(dataset, train_perc, test_perc):
     '''
-    This function splits the dataset into a training and test set, as per user
-    inputer parameters.
+    This function randomizes the order of the dataset, then splits it into a 
+    training and test set, as per user input parameters.
     
     input:
         dataset: datapoints and regression labels of the full parsed datset
@@ -177,14 +196,44 @@ def split_dataset(dataset, train_perc, test_perc):
     # check to make sure percentages add to 100%
     assert train_perc + test_perc == 100
     
+    # randomize order of dataset (accounts for time-shift)
+    shuffled_dataset = unison_shuffled_copies(dataset[0], dataset[1])
+    dataset = shuffled_dataset
+    
     # find the split, cast it to an integer
-    split = int(len(dataset[1]) * (0.01 * train_perc))
+    split = int((dataset[0].shape[0]) * (0.01 * train_perc))
     
     # return slices of the dataset based on the calculated split
     return (dataset[0][:split], dataset[1][:split]), (dataset[0][split:], dataset[1][split:])
     
+    
+def random_search_CV(model, param_distros, num_iters):
+    '''
+    Random search cross-validation over the hyperparameter ranges passed in, for
+    the model passed in.
+    
+    input:
+        model: the standard instantiated model to do random search CV over.
+        param_distros: the distrubition of parameters to search over
+        num_iters: the number of iterations to perform the random search CV for 
+    
+    output:
+        The best model found during the random search CV procedure (to be re-trained
+        on the full training dataset).
+    '''
+    
+    # store variables for best model, R^2 score
+    best_model = None
+    best_score = -np.inf
+    
+    # create RandomSearchCV object
+    rsCV = RandomSearchCV(model, param_distros, num_iters)
+    
+    # perform cross-validation using random search
+    
+    
 
-def build_model(train_data, model_type, cross_validate=False):
+def build_model(train_data, model_type, cross_validate=False, num_iters=10):
     '''
     This function fits an estimator (of the type model) to the training dataset
     (train_data).
@@ -203,22 +252,27 @@ def build_model(train_data, model_type, cross_validate=False):
         # create linear regression model
         model = LinearRegression()
         
-        if cross_validate:
-            # cross-validate the model 
-            model = cross_validate(train_data, model_type, model)
-            model.fit(train_data[0], train_data[1])
+        # NOTE: not any important hyperparameters to tune (in my opinion)!
         
-        else:
-            # use default parameters
-            model.fit(train_data[0], train_data[1])
+        # use default parameters
+        model.fit(train_data[0], train_data[1])
         
     elif model_type == 'support vector regression':
         # create support vector regression model
         model = SVR()
         
         if cross_validate:
-            # cross-validate the model 
-            model = cross_validate(train_data, model_type, model)
+            # create parameter distribution
+            param_distro = {
+                'kernel' : [ 'linear', 'rbf', 'poly', 'sigmoid' ],
+                'C' : [ 0.01, 0.1, 1.0, 10.0, 100.0 ],
+                'epsilon' : [ 0.01, 0.05, 0.1, 0.5, 1.0 ]
+            }
+            
+            # create random grid search object
+            model = RandomizedSearchCV(estimator=model, param_distributions=param_distro, n_iter=num_iters, n_jobs=-1, verbose=True)
+            
+            # cross-validate the model
             model.fit(train_data[0], train_data[1])
         
         else:
@@ -230,8 +284,20 @@ def build_model(train_data, model_type, cross_validate=False):
         model = MLPRegressor(early_stopping=True)
         
         if cross_validate:
-            # cross-validate the model 
-            model = cross_validate(train_data, model)
+            # create parameter distribution
+            param_distro = {
+                'hidden_layer_sizes' : [ (100), (128), (256), (512), (128, 100), (256, 128) ],
+                'alpha' : [ 0.00001, 0.0001, 0.001 ],
+            }
+            
+            # create random grid search object
+            model = RandomizedSearchCV(estimator=model, param_distributions=param_distro, n_iter=num_iters, n_jobs=6, verbose=True)
+            
+            print '\n'
+            print '... performing cross-validation'
+            print '\n'
+            
+            # cross-validate the model
             model.fit(train_data[0], train_data[1])
         
         else:
@@ -248,7 +314,9 @@ def build_model(train_data, model_type, cross_validate=False):
 def get_score(model, test_data):
     '''
     This function returns the score of the trained model on the test dataset.
-    
+    Python comes with batteries included. Use random.shuffle on a sequence.
+
+
     input:
         model: the regression model which is fit to the training data
         test_data: the set of test data which we use to test predictive capacity

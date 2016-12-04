@@ -22,7 +22,7 @@ held-out set of data, follow these instructions.
 
 - Navigate to the code/ directory
 
-- Execute "python estimate_engagement.py", and follow the prompts at the console
+- Execute "python build_engagement_estimator.py", and follow the prompts at the console
 to enter in parameters for the regression estimator: handle, training data (and thus,
 testing data) percentage, regression model, feature representation / preprocessing, 
 regression value (say, likes or retweets), random search cross-validation vs. 
@@ -39,7 +39,12 @@ which will be used to retrieve the model for other portions of the project.
 To predict engagament (in the form of likes, retweets, replies, ...) on a new 
 tweet or set of tweets, follow these instructions.
 
-- TODO
+- Navigate to the code/ directory
+
+- Execute "python predict_future_engagement.py", and follow the prompts at the console
+to choose the saved regression model to make predictions on new tweets which you may
+enter. You can continue to do this, or choose a new model and continue to do this,
+until you tell the program to stop after a prediction.
 
 
 ## Clustering Tweets at Different Levels of Granularity

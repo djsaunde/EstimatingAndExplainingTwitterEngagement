@@ -4,6 +4,7 @@ Script which contains helper functions for the main script(s).
 author: Dan Saunders (djsaunde@umass.edu)
 '''
 
+
 from __future__ import division
 
 from sklearn.linear_model import LinearRegression
@@ -12,6 +13,7 @@ from sklearn.neural_network import MLPRegressor
 from sklearn.feature_extraction.text import HashingVectorizer, CountVectorizer, TfidfTransformer
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import RandomizedSearchCV
+from sklearn.multioutput import MultiOutputRegressor
 
 import numpy as np
 import random
@@ -43,7 +45,7 @@ def remove_retweets(tweets):
     return not_retweets
     
     
-def get_features_count_vectorizer(tweets_text, regression_value):
+def get_features_count_vectorizer(tweets_text):
     '''
     Function which reduces a dataset of tweets into a feature vectorizer / occurrence counter.
     
@@ -61,10 +63,10 @@ def get_features_count_vectorizer(tweets_text, regression_value):
     features = vectorizer.fit_transform(tweets_text)
     
     # return the features we've extracted
-    return features
+    return features, vectorizer
         
         
-def get_features_tfidf(tweets_text, regression_value):
+def get_features_tfidf(tweets_text):
     '''
     Function which reduces a dataset of tweets into count vectorizer representation,
     then weight these occurrences by their tf-idf index.
@@ -89,10 +91,10 @@ def get_features_tfidf(tweets_text, regression_value):
     features = tfidf_transformer.fit_transform(counts)
     
     # return the features we've extracted
-    return features
+    return features, tfidf_transformer
         
         
-def get_features_hashing_vectorizer(tweets_text, regression_value):
+def get_features_hashing_vectorizer(tweets_text):
     '''
     Function which reduces a dataset of tweets into a HashingVectorizer object with
     2^14 features. 
@@ -111,10 +113,10 @@ def get_features_hashing_vectorizer(tweets_text, regression_value):
     features = hv.transform(tweets_text).toarray().astype(np.int32)
     
     # return the features we've extracted
-    return features
+    return features, hv
         
         
-def get_features(filename, regression_value, extr_method):
+def get_features_and_targets(filename, regression_value, extr_method):
     '''
     Delegate function to feature extraction in order to remove duplicate code
     
@@ -134,11 +136,11 @@ def get_features(filename, regression_value, extr_method):
     
     # delegate to feature extraction functions based on 'extr_method' parameter
     if extr_method == 'count vectorizer':
-        features = get_features_count_vectorizer(tweets_text, regression_value)
+        features, feature_extractor = get_features_count_vectorizer(tweets_text)
     elif extr_method == 'tfidf':
-        features = get_features_tfidf(tweets_text, regression_value)
+        features, feature_extractor = get_features_tfidf(tweets_text)
     elif extr_method == 'hash vectorizer':
-        features = get_features_hashing_vectorizer(tweets_text, regression_value)
+        features, feature_extractor = get_features_hashing_vectorizer(tweets_text)
     else:
         raise NotImplementedError
         
@@ -146,14 +148,25 @@ def get_features(filename, regression_value, extr_method):
     if regression_value == 'likes':
         # store the number of likes associated with each tweet in an array
         values = np.array([ tweets_list[i][2] for i in range(len(tweets_list)) ], dtype=np.int64)
-        # return tweets text and likes
-        return (features, values)
+        
+        # return tweets features and likes
+        return features, values, feature_extractor
         
     elif regression_value == 'retweets':
         # store the number of retweets associated with each tweet in an array
         values = np.array([ tweets_list[i][3] for i in range(len(tweets_list)) ], dtype=np.int64)
-        # return tweets text and retweets
-        return (features, values)
+        
+        # return tweets features and retweets
+        return features, values, feature_extractor
+        
+    elif regression_value == 'both':
+        # store the number of likes and retweets associated with each tweet in an array
+        likes = [tweets_list[i][2] for i in range(len(tweets_list))]
+        retweets = [tweets_list[i][3] for i in range(len(tweets_list))]
+        values = np.array((likes, retweets), dtype=np.int64)
+        
+        # return tweets features and likes, retweets targets
+        return features, values, feature_extractor
         
     else:
         raise NotImplementedError
@@ -171,6 +184,15 @@ def unison_shuffled_copies(list1, list2):
         tuple of both lists, shuffled
     '''
     
+    # if we are doing multiple regression (likes and tweets)
+    if list2.shape[0] == 2:
+        # get a permutation on the number of elements in the lists
+        p = np.random.permutation(list1.shape[0])
+        # use the permutation to permute the lists
+        list2[0], list2[1] = list2[0][p], list2[1][p]
+        # return the lists
+        return list1[p], list2
+        
     # get a permutation on the number of elements in the lists
     p = np.random.permutation(list1.shape[0])
     # use the permutation to permute the lists
@@ -252,6 +274,10 @@ def build_model(train_data, model_type, cross_validate=False, num_iters=10):
         # create linear regression model
         model = LinearRegression()
         
+        # add multitarge support if warranted
+        if train_data[1].shape[0] == 2:
+            model = MultiOutputRegressor(model)
+        
         # NOTE: not any important hyperparameters to tune (in my opinion)!
         
         # use default parameters
@@ -261,11 +287,15 @@ def build_model(train_data, model_type, cross_validate=False, num_iters=10):
         # create support vector regression model
         model = SVR()
         
+        # add multitarge support if warranted
+        if train_data[1].shape[0] == 2:
+            model = MultiOutputRegressor(model)
+        
         if cross_validate:
             # create parameter distribution
             param_distro = {
                 'kernel' : [ 'linear', 'rbf', 'poly', 'sigmoid' ],
-                'C' : [ 0.01, 0.1, 1.0, 10.0, 100.0 ],
+                'C' : [ 0.01, 0.1, 1.0, 10.0 ],
                 'epsilon' : [ 0.01, 0.05, 0.1, 0.5, 1.0 ]
             }
             
@@ -282,6 +312,10 @@ def build_model(train_data, model_type, cross_validate=False, num_iters=10):
     elif model_type == 'neural network regression':
         # create neural network regression model
         model = MLPRegressor(early_stopping=True)
+        
+        # add multitarge support if warranted
+        if train_data[1].shape[0] == 2:
+            model = MultiOutputRegressor(model)
         
         if cross_validate:
             # create parameter distribution
@@ -314,8 +348,6 @@ def build_model(train_data, model_type, cross_validate=False, num_iters=10):
 def get_score(model, test_data):
     '''
     This function returns the score of the trained model on the test dataset.
-    Python comes with batteries included. Use random.shuffle on a sequence.
-
 
     input:
         model: the regression model which is fit to the training data

@@ -9,7 +9,7 @@ author: Dan Saunders (djsaunde@umass.edu)
 
 
 # importing Twitter API python wrapper, argument-parser, and csv for csv manipulation
-import tweepy, csv, cPickle as pickle
+import tweepy, csv, os, sys, cPickle as pickle
 # import helper method script
 from util import *
 
@@ -20,6 +20,15 @@ print '\n'
 handle = raw_input('Enter Twitter handle for regression task: ')
 print '\n'
 
+# check to see if this handle exists
+if handle + '_tweets.csv' not in os.listdir('../data/'):
+    # ask the user if he / she would like to get this
+    data_gather = raw_input('You do not have this data. Would you like to gather it? (y or Enter / n) ')
+    if data_gather in ['y', '']:
+        os.system('python get_data.py ' + handle)
+    else:
+        sys.exit() 
+
 # get training / testing percentage...
 train_split = int(raw_input('Enter percent data to use for training: '))
 assert train_split > 0 and train_split <= 100
@@ -27,7 +36,7 @@ test_split = 100 - train_split
 print '\n'
 
 # get regression model to use to build estimator...
-regressor = raw_input('Enter regression model (linear regression, support vector regression, neural network regression) to use for engagement estimation: ')
+regression_method = raw_input('Enter regression model (linear regression, support vector regression, neural network regression) to use for engagement estimation: ')
 print '\n'
 
 # get feature representation...
@@ -42,8 +51,11 @@ if regress_param == '':
 print '\n'
 
 # get cross validation flag...
-cv_flag = raw_input('Random search cross validation (y) or standard initialization (n or hit Enter): ')
-print '\n'
+if regression_method in ['support vector regression', 'neural network regression']:
+    cv_flag = raw_input('Random search cross validation (y) or standard initialization (n or hit Enter): ')
+    print '\n'
+else:
+    cv_flag = ''
 
 # branch according to cross validation flag...
 if cv_flag == 'y':
@@ -58,14 +70,14 @@ else:
     
 
 # parse the scraped dataset into its feature representation
-features, targets, feature_extractor = get_features_and_targets(handle + '_tweets.csv', regress_param, feature_repr)
+features, targets, feature_extractor = get_features_and_targets_regression(handle + '_tweets.csv', regress_param, feature_repr)
 dataset = (features, targets)
 
 # get the training set and test set based on input split parameter
 train_data, test_data = split_dataset(dataset, train_split, test_split)
 
 # build an estimator based on the training dataset
-model = build_model(train_data, regressor, cross_validate, num_iters)
+model = build_regression_model(train_data, regression_method, cross_validate, num_iters)
 
 # get model score on training set, test set
 train_score = get_score(model, train_data)
@@ -95,9 +107,9 @@ save = raw_input('Do you want to save this model (y or Enter / n)? ')
 print '\n'
 
 if save == 'y' or save == '':
-    pickle.dump((model, feature_extractor), open('../models/' + handle + ' ' + str(train_split) + ' ' + str(test_split)
-                    + ' ' + regressor + ' ' + feature_repr + ' ' + regress_param
-                    + ' ' + str(num_iters) + '.p', 'wb'))
-
+    with open('../models/' + handle + ' ' + str(train_split) + ' ' + str(test_split)
+                    + ' ' + regression_method + ' ' + feature_repr + ' ' + regress_param
+                    + ' ' + str(num_iters) + '.p', 'wb') as f:
+        pickle.dump((model, feature_extractor), f)
 
 

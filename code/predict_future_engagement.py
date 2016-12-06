@@ -31,16 +31,11 @@ while not done:
     # get user input as to which model to use in making predictions
     model_idx = int(raw_input('Enter in the index (1, 2, 3, ...) of the model you wish to use to make predictions: '))
     
-    print '\n'
-    print '... loading the model'
-    print '\n'
+    print '\n', '... loading the model', '\n'
     
-    # load the model
-    model_name = os.listdir('../models')[model_idx-1]
+    # load the model from the pickled file
+    model_name = os.listdir('../models/')[model_idx-1]
     model, feature_extractor = pickle.load(open('../models/' + model_name, 'rb'))
-    
-    print model
-    print feature_extractor
     
     # create flag to cease using model
     done_model = False

@@ -14,6 +14,7 @@ from sklearn.feature_extraction.text import HashingVectorizer, CountVectorizer, 
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.multioutput import MultiOutputRegressor
+from sklearn.cluster import AgglomerativeClustering, KMeans
 
 import numpy as np
 import random
@@ -110,18 +111,21 @@ def get_features_hashing_vectorizer(tweets_text):
     hv = HashingVectorizer(n_features=2**10)
     
     # use the hashing vectorizer to transform the raw text into hash vectors
-    features = hv.transform(tweets_text).toarray().astype(np.int32)
+    features = hv.fit_transform(tweets_text).toarray().astype(np.int32)
     
     # return the features we've extracted
     return features, hv
         
         
-def get_features_and_targets(filename, regression_value, extr_method):
+def get_features_and_targets_regression(filename, target_value, extr_method):
     '''
-    Delegate function to feature extraction in order to remove duplicate code
+    Delegate function to feature extraction in order to remove duplicate code (for 
+    regression task)
     
     input:
-        filename: filename which 
+        filename: name of .csv file to get dataset from
+        target_value: value which we wish to predict via regression
+        extr_method: feature extraction method to use on the Twitter dataset
     
     output:
         data processed the way the user specified with the 'extr_method' parameter
@@ -145,21 +149,21 @@ def get_features_and_targets(filename, regression_value, extr_method):
         raise NotImplementedError
         
     # branch based on regression value
-    if regression_value == 'likes':
+    if target_value == 'likes':
         # store the number of likes associated with each tweet in an array
         values = np.array([ tweets_list[i][2] for i in range(len(tweets_list)) ], dtype=np.int64)
         
         # return tweets features and likes
         return features, values, feature_extractor
         
-    elif regression_value == 'retweets':
+    elif target_value == 'retweets':
         # store the number of retweets associated with each tweet in an array
         values = np.array([ tweets_list[i][3] for i in range(len(tweets_list)) ], dtype=np.int64)
         
         # return tweets features and retweets
         return features, values, feature_extractor
         
-    elif regression_value == 'both':
+    elif target_value == 'both':
         # store the number of likes and retweets associated with each tweet in an array
         likes = [tweets_list[i][2] for i in range(len(tweets_list))]
         retweets = [tweets_list[i][3] for i in range(len(tweets_list))]
@@ -170,6 +174,39 @@ def get_features_and_targets(filename, regression_value, extr_method):
         
     else:
         raise NotImplementedError
+        
+        
+def get_features_and_targets_clustering(filename, extr_method):
+    '''
+    Delegate function to feature extraction in order to remove duplicate code (for 
+    clustering task)
+    
+    input:
+        filename: name of .csv file to get dataset from
+        extr_method: feature extraction method to use on the Twitter dataset
+    
+    output:
+        data processed the way the user specified with the 'extr_method' parameter
+    '''
+    
+    # open the data file associated with the handle passed in as a parameter
+    with open('../data/' + filename, 'rb') as f:
+        tweets_list = list(csv.reader(f))
+        
+    # get a list of tweet text
+    tweets_text = [ tweets_list[i][1] for i in range(len(tweets_list)) ]
+    
+    # delegate to feature extraction functions based on 'extr_method' parameter
+    if extr_method == 'count vectorizer':
+        features, feature_extractor = get_features_count_vectorizer(tweets_text)
+    elif extr_method == 'tfidf':
+        features, feature_extractor = get_features_tfidf(tweets_text)
+    elif extr_method == 'hash vectorizer':
+        features, feature_extractor = get_features_hashing_vectorizer(tweets_text)
+    else:
+        raise NotImplementedError
+        
+    return features, feature_extractor
         
         
 def unison_shuffled_copies(list1, list2):
@@ -228,34 +265,8 @@ def split_dataset(dataset, train_perc, test_perc):
     # return slices of the dataset based on the calculated split
     return (dataset[0][:split], dataset[1][:split]), (dataset[0][split:], dataset[1][split:])
     
-    
-def random_search_CV(model, param_distros, num_iters):
-    '''
-    Random search cross-validation over the hyperparameter ranges passed in, for
-    the model passed in.
-    
-    input:
-        model: the standard instantiated model to do random search CV over.
-        param_distros: the distrubition of parameters to search over
-        num_iters: the number of iterations to perform the random search CV for 
-    
-    output:
-        The best model found during the random search CV procedure (to be re-trained
-        on the full training dataset).
-    '''
-    
-    # store variables for best model, R^2 score
-    best_model = None
-    best_score = -np.inf
-    
-    # create RandomSearchCV object
-    rsCV = RandomSearchCV(model, param_distros, num_iters)
-    
-    # perform cross-validation using random search
-    
-    
 
-def build_model(train_data, model_type, cross_validate=False, num_iters=10):
+def build_regression_model(train_data, model_type, cross_validate=False, num_iters=10):
     '''
     This function fits an estimator (of the type model) to the training dataset
     (train_data).
@@ -263,6 +274,9 @@ def build_model(train_data, model_type, cross_validate=False, num_iters=10):
     input:
         training_set: the set of training data from which to build our model
         model_type: the scikit-learn model of choice given by user input parameter
+        cross_validate: whether or not to perform random search cross-validation over
+            pre-specified parameter distributions
+        num_iters: the number of iterations to perform the cross-validation
         
     output:
         trained model fit to the training dataset
@@ -292,7 +306,7 @@ def build_model(train_data, model_type, cross_validate=False, num_iters=10):
             model = MultiOutputRegressor(model)
         
         if cross_validate:
-            # create parameter distribution
+            # create parameter distributions
             param_distro = {
                 'kernel' : [ 'linear', 'rbf', 'poly', 'sigmoid' ],
                 'C' : [ 0.01, 0.1, 1.0, 10.0 ],
@@ -318,7 +332,7 @@ def build_model(train_data, model_type, cross_validate=False, num_iters=10):
             model = MultiOutputRegressor(model)
         
         if cross_validate:
-            # create parameter distribution
+            # create parameter distributions
             param_distro = {
                 'hidden_layer_sizes' : [ (100), (128), (256), (512), (128, 100), (256, 128) ],
                 'alpha' : [ 0.00001, 0.0001, 0.001 ],
@@ -342,6 +356,72 @@ def build_model(train_data, model_type, cross_validate=False, num_iters=10):
         raise NotImplementedError
     
     # return the trained / cross-validated and trained model    
+    return model
+    
+    
+def build_clustering_model(data, model_type, cross_validate=False, num_iters=10):
+    '''
+    This function fits a clustering model (of the type model_type) to the dataset
+    
+    input:
+        training_set: the set of training data from which to build our model
+        model_type: the scikit-learn model of choice given by user input parameter
+        cross_validate: whether or not to perform random search cross-validation over
+            pre-specified parameter distributions
+        num_iters: the number of iterations to perform the cross-validation
+        
+    output:
+        trained model fit to the training dataset
+    '''
+    
+    # create a model variable
+    model = None
+    
+    if model_type == 'hierarchical clustering':
+        # instantiate model with default hyperparameter settings
+        model = AgglomerativeClustering
+        
+        if cross_validate:
+            # create parameter distributions
+            param_distro = {}
+            
+            # create random grid search object
+            model = RandomizedSearchCV(estimator=model, param_distributions=param_distro, n_iter=num_iters, n_jobs=-1, verbose=True)
+            
+            print '\n', '... performing cross-validation', '\n'
+            
+            # cross-validate the model
+            model.fit(data)
+            
+        else:
+            # use default parameters
+            model.fit(data)
+        
+        
+    elif model_type == 'kmeans':
+        # instantiate model with default hyperparameter settings
+        model = KMeans()
+        
+        if cross_validate:
+            # create parameter distributions
+            param_distro = {}
+            
+            # create random grid search object
+            model = RandomizedSearchCV(estimator=model, param_distributions=param_distro, n_iter=num_iters, n_jobs=-1, verbose=True)
+            
+            print '\n', '... performing cross-validation', '\n'
+            
+            # cross-validate the model
+            model.fit(data)
+            
+        else:
+            # use default parameters
+            model.fit(data)
+            
+    else:
+        raise NotImplementedError
+        
+    # return the fitted / cross-validated model
     return model
     
     

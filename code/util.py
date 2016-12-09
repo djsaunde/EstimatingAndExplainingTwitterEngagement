@@ -5,20 +5,30 @@ author: Dan Saunders (djsaunde@umass.edu)
 '''
 
 
+# want division of integers to caste to floats
 from __future__ import division
 
+# scikit-learn imports
 from sklearn.linear_model import LinearRegression
 from sklearn.svm import SVR
 from sklearn.neural_network import MLPRegressor
-from sklearn.feature_extraction.text import HashingVectorizer, CountVectorizer, TfidfTransformer
+from sklearn.feature_extraction.text import HashingVectorizer, CountVectorizer, TfidfVectorizer
 from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import RandomizedSearchCV
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.cluster import AgglomerativeClustering, KMeans
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.decomposition import TruncatedSVD
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import Normalizer
+from sklearn.decomposition import LatentDirichletAllocation
+from sklearn.decomposition import NMF
 
-import numpy as np
-import random
-import csv
+# standard imports
+import random, csv, os, re, numpy as np
+
+# matplotlib for plotting
+import matplotlib.pyplot as plt
 
 
 def remove_retweets(tweets):
@@ -40,6 +50,8 @@ def remove_retweets(tweets):
     for tweet in tweets:
         # if the tweet doesn't contain the string literal 'RT'...
         if 'RT' not in tweet.text:
+            # remove links from tweet text
+            tweet.text = remove_link(tweet.text)
             # add it to the returned list
             not_retweets.append(tweet)
             
@@ -79,23 +91,17 @@ def get_features_tfidf(tweets_text):
         datapoints (with some chosen feature representation) and regression labels 
     '''
     
-    # instantiate a count vectorizer to vectorize the dataset of tweet text
-    vectorizer = CountVectorizer(min_df=1)
-    
-    # fit / transform the tweets using the count vectorizer
-    counts = vectorizer.fit_transform(tweets_text)
-    
     # instantiate a tfidf transformer object
-    tfidf_transformer = TfidfTransformer()
+    tfidf_transformer = TfidfVectorizer()
     
     # fit it to our count vectorized data and then transform said data
-    features = tfidf_transformer.fit_transform(counts)
+    features = tfidf_transformer.fit_transform(tweets_text)
     
     # return the features we've extracted
     return features, tfidf_transformer
         
         
-def get_features_hashing_vectorizer(tweets_text):
+def get_features_hash_vectorizer(tweets_text):
     '''
     Function which reduces a dataset of tweets into a HashingVectorizer object with
     2^14 features. 
@@ -108,7 +114,7 @@ def get_features_hashing_vectorizer(tweets_text):
     '''
     
     # create a hashing vectorizer to transform the tweets into hash vector representation
-    hv = HashingVectorizer(n_features=2**10)
+    hv = HashingVectorizer(n_features=2**12)
     
     # use the hashing vectorizer to transform the raw text into hash vectors
     features = hv.fit_transform(tweets_text).toarray().astype(np.int32)
@@ -144,39 +150,39 @@ def get_features_and_targets_regression(filename, target_value, extr_method):
     elif extr_method == 'tfidf':
         features, feature_extractor = get_features_tfidf(tweets_text)
     elif extr_method == 'hash vectorizer':
-        features, feature_extractor = get_features_hashing_vectorizer(tweets_text)
+        features, feature_extractor = get_features_hash_vectorizer(tweets_text)
     else:
         raise NotImplementedError
         
     # branch based on regression value
     if target_value == 'likes':
         # store the number of likes associated with each tweet in an array
-        values = np.array([ tweets_list[i][2] for i in range(len(tweets_list)) ], dtype=np.int64)
+        targets = np.array([ tweets_list[i][2] for i in range(len(tweets_list)) ], dtype=np.int64)
         
         # return tweets features and likes
-        return features, values, feature_extractor
+        return features, targets, feature_extractor
         
     elif target_value == 'retweets':
         # store the number of retweets associated with each tweet in an array
-        values = np.array([ tweets_list[i][3] for i in range(len(tweets_list)) ], dtype=np.int64)
+        targets = np.array([ tweets_list[i][3] for i in range(len(tweets_list)) ], dtype=np.int64)
         
         # return tweets features and retweets
-        return features, values, feature_extractor
+        return features, targets, feature_extractor
         
     elif target_value == 'both':
         # store the number of likes and retweets associated with each tweet in an array
         likes = [tweets_list[i][2] for i in range(len(tweets_list))]
         retweets = [tweets_list[i][3] for i in range(len(tweets_list))]
-        values = np.array((likes, retweets), dtype=np.int64)
+        targets = np.array(zip(likes, retweets), dtype=np.int64)
         
         # return tweets features and likes, retweets targets
-        return features, values, feature_extractor
+        return features, targets, feature_extractor
         
     else:
         raise NotImplementedError
         
         
-def get_features_and_targets_clustering(filename, extr_method):
+def get_features_and_targets_clustering(filename, extr_method, use_lsa, lsa_components):
     '''
     Delegate function to feature extraction in order to remove duplicate code (for 
     clustering task)
@@ -202,11 +208,68 @@ def get_features_and_targets_clustering(filename, extr_method):
     elif extr_method == 'tfidf':
         features, feature_extractor = get_features_tfidf(tweets_text)
     elif extr_method == 'hash vectorizer':
-        features, feature_extractor = get_features_hashing_vectorizer(tweets_text)
+        features, feature_extractor = get_features_hash_vectorizer(tweets_text)
     else:
         raise NotImplementedError
         
-    return features, feature_extractor
+    # use LSA dimensionality reduction if specified
+    if use_lsa:
+        # create LSA (or SVD) object
+        svd = TruncatedSVD(lsa_components)
+        # create normalizer object (so k-means will behave as spherical k-means for better results)
+        normalizer = Normalizer(copy=False)
+        # create the LSA pipeline
+        lsa = make_pipeline(svd, normalizer)
+        # fit and transform the data
+        features = lsa.fit_transform(features)    
+        # add the LSA pipeline to the feature extractor
+        feature_extractor = make_pipeline(feature_extractor, lsa)    
+    
+    # store the number of likes + retweets associated with each tweet in an array
+    likes = [tweets_list[i][2] for i in range(len(tweets_list))]
+    retweets = [tweets_list[i][3] for i in range(len(tweets_list))]
+    targets = np.array(likes, dtype=np.int64) + np.array(retweets, dtype=np.int64)
+        
+    return features, targets, feature_extractor
+    
+    
+def get_features_and_targets_dimensionality_reduction(filename, extr_method):
+    '''
+    Delegate function to feature extraction in order to remove duplicate code (for 
+    dimensionality reduction task)
+    
+    input:
+        filename: name of .csv file to get dataset from
+        target_value: value which we wish to predict via regression
+        extr_method: feature extraction method to use on the Twitter dataset
+    
+    output:
+        data processed the way the user specified with the 'extr_method' parameter
+    '''
+    
+    # open the data file associated with the handle passed in as a parameter
+    with open('../data/' + filename, 'rb') as f:
+        tweets_list = list(csv.reader(f))
+        
+    # get a list of tweet text
+    tweets_text = [ tweets_list[i][1] for i in range(len(tweets_list)) ]
+    
+    # delegate to feature extraction functions based on 'extr_method' parameter
+    if extr_method == 'count vectorizer':
+        features, feature_extractor = get_features_count_vectorizer(tweets_text)
+    elif extr_method == 'tfidf':
+        features, feature_extractor = get_features_tfidf(tweets_text)
+    elif extr_method == 'hash vectorizer':
+        features, feature_extractor = get_features_hash_vectorizer(tweets_text)
+    else:
+        raise NotImplementedError
+    
+    # store the number of likes + retweets associated with each tweet in an array
+    likes = [tweets_list[i][2] for i in range(len(tweets_list))]
+    retweets = [tweets_list[i][3] for i in range(len(tweets_list))]
+    targets = np.array(likes, dtype=np.int64) + np.array(retweets, dtype=np.int64)
+        
+    return features, targets, feature_extractor
         
         
 def unison_shuffled_copies(list1, list2):
@@ -266,7 +329,7 @@ def split_dataset(dataset, train_perc, test_perc):
     return (dataset[0][:split], dataset[1][:split]), (dataset[0][split:], dataset[1][split:])
     
 
-def build_regression_model(train_data, model_type, cross_validate=False, num_iters=10):
+def build_regression_model(train_data, model_type, cross_validate, num_iters, params):
     '''
     This function fits an estimator (of the type model) to the training dataset
     (train_data).
@@ -288,27 +351,19 @@ def build_regression_model(train_data, model_type, cross_validate=False, num_ite
         # create linear regression model
         model = LinearRegression()
         
-        # add multitarge support if warranted
-        if train_data[1].shape[0] == 2:
-            model = MultiOutputRegressor(model)
-        
         # NOTE: not any important hyperparameters to tune (in my opinion)!
         
         # use default parameters
         model.fit(train_data[0], train_data[1])
         
     elif model_type == 'support vector regression':
-        # create support vector regression model
-        model = SVR()
-        
-        # add multitarge support if warranted
-        if train_data[1].shape[0] == 2:
-            model = MultiOutputRegressor(model)
+        # create support vector regression model (default to radial basis function kernel)
+        model = SVR(kernel='rbf')
         
         if cross_validate:
             # create parameter distributions
             param_distro = {
-                'kernel' : [ 'linear', 'rbf', 'poly', 'sigmoid' ],
+                'kernel' : [ 'rbf', 'sigmoid' ],
                 'C' : [ 0.01, 0.1, 1.0, 10.0 ],
                 'epsilon' : [ 0.01, 0.05, 0.1, 0.5, 1.0 ]
             }
@@ -316,34 +371,54 @@ def build_regression_model(train_data, model_type, cross_validate=False, num_ite
             # create random grid search object
             model = RandomizedSearchCV(estimator=model, param_distributions=param_distro, n_iter=num_iters, n_jobs=-1, verbose=True)
             
+            print '\n', '... performing cross-validation', '\n'
+            
             # cross-validate the model
             model.fit(train_data[0], train_data[1])
         
         else:
             # use default parameters
             model.fit(train_data[0], train_data[1])
-        
-    elif model_type == 'neural network regression':
-        # create neural network regression model
-        model = MLPRegressor(early_stopping=True)
-        
-        # add multitarge support if warranted
-        if train_data[1].shape[0] == 2:
-            model = MultiOutputRegressor(model)
+            
+    elif model_type == 'decision tree regression':
+        # create decision tree regression model
+        model = DecisionTreeRegressor()
         
         if cross_validate:
             # create parameter distributions
             param_distro = {
-                'hidden_layer_sizes' : [ (100), (128), (256), (512), (128, 100), (256, 128) ],
+                'splitter' : [ 'best', 'random' ],
+                'min_samples_split' : [ 2, 5, 10, 25, 50 ],
+                'min_samples_leaf' : [ 1, 5, 10, 25 ]
+            }
+            
+            # create random grid search object
+            model = RandomizedSearchCV(estimator=model, param_distributions=param_distro, n_iter=num_iters, n_jobs=-1, verbose=True)
+            
+            print '\n', '... performing cross-validation', '\n'
+            
+            # cross-validate the model
+            model.fit(train_data[0], train_data[1])
+            
+        else:
+            # use default parameters
+            model.fit(train_data[0], train_data[1])
+        
+    elif model_type == 'neural network regression':
+        # create neural network regression model
+        model = MLPRegressor(hidden_layer_sizes=params['layer_sizes'], early_stopping=True, verbose=True)
+        
+        if cross_validate:
+            # create parameter distributions
+            param_distro = {
+                'hidden_layer_sizes' : [ (2048), (1024), (2048, 1024), (1024, 1024), (1024, 512), ],
                 'alpha' : [ 0.00001, 0.0001, 0.001 ],
             }
             
             # create random grid search object
             model = RandomizedSearchCV(estimator=model, param_distributions=param_distro, n_iter=num_iters, n_jobs=6, verbose=True)
             
-            print '\n'
-            print '... performing cross-validation'
-            print '\n'
+            print '\n', '... performing cross-validation', '\n'
             
             # cross-validate the model
             model.fit(train_data[0], train_data[1])
@@ -359,52 +434,42 @@ def build_regression_model(train_data, model_type, cross_validate=False, num_ite
     return model
     
     
-def build_clustering_model(data, model_type, cross_validate=False, num_iters=10):
+def build_clustering_model(data, model_type, cross_validate=False, num_iters=10, num_clusters=10):
     '''
-    This function fits a clustering model (of the type model_type) to the dataset
+    This function fits a clustering model (of the type model_type) to the given features
     
     input:
-        training_set: the set of training data from which to build our model
+        data: the set of features of the data from which to build our model
         model_type: the scikit-learn model of choice given by user input parameter
         cross_validate: whether or not to perform random search cross-validation over
             pre-specified parameter distributions
         num_iters: the number of iterations to perform the cross-validation
+        num_clusters: the number of clusters which we consider in fitting the model
         
     output:
-        trained model fit to the training dataset
+        trained model fit to the features of the data
     '''
     
     # create a model variable
     model = None
     
-    if model_type == 'hierarchical clustering':
+    if model_type == 'agglomerative clustering':
         # instantiate model with default hyperparameter settings
-        model = AgglomerativeClustering
+        model = AgglomerativeClustering(n_clusters=num_clusters)
         
-        if cross_validate:
-            # create parameter distributions
-            param_distro = {}
-            
-            # create random grid search object
-            model = RandomizedSearchCV(estimator=model, param_distributions=param_distro, n_iter=num_iters, n_jobs=-1, verbose=True)
-            
-            print '\n', '... performing cross-validation', '\n'
-            
-            # cross-validate the model
-            model.fit(data)
-            
-        else:
-            # use default parameters
-            model.fit(data)
+        # no scoring function implies no cross validation!
+        model.fit(data)
         
         
     elif model_type == 'kmeans':
         # instantiate model with default hyperparameter settings
-        model = KMeans()
+        model = KMeans(n_clusters=num_clusters)
         
         if cross_validate:
             # create parameter distributions
-            param_distro = {}
+            param_distro = {
+                    'n_clusters' : range(10, 51, 5) 
+                }
             
             # create random grid search object
             model = RandomizedSearchCV(estimator=model, param_distributions=param_distro, n_iter=num_iters, n_jobs=-1, verbose=True)
@@ -418,6 +483,66 @@ def build_clustering_model(data, model_type, cross_validate=False, num_iters=10)
             # use default parameters
             model.fit(data)
             
+    else:
+        raise NotImplementedError
+        
+    # return the fitted / cross-validated model
+    return model
+    
+    
+def build_dimensionality_reduction_model(data, model_type, cross_validate=False, num_iters=10):
+    '''
+    This function fits a dimensionality reduction model (of the type model_type) to the given features
+    
+    input:
+        training_set: the set of features of the data from which to build our model
+        model_type: the scikit-learn model of choice given by user input parameter
+        
+    output:
+        trained model fit to the features of the data
+    '''
+    
+    # create a model variable
+    model = None
+    
+    if model_type == 'latent dirichlet allocation':
+        # instantiate model with default hyperparameter settings
+        model = LatentDirichletAllocation()
+        
+        if cross_validate:
+            # create parameter distributions
+            param_distro = {}
+            
+            # create random grid search object
+            model = RandomizedSearchCV(estimator=model, param_distributions=param_distro, n_iter=num_iters, n_jobs=-1, verbose=True)
+            
+            print '\n', '... performing cross-validation', '\n'
+            
+            # cross-validate the model
+            model.fit(data)
+        else:
+            # fit the vanilla model to the data
+            model.fit(data)
+        
+    elif model_type == 'non-negative matrix factorization':
+        # instantiate model with default hyperparameter settings
+        model = NMF(n_components=50)
+        
+        if cross_validate:
+            # create parameter distributions
+            param_distro = {}
+            
+            # create random grid search object
+            model = RandomizedSearchCV(estimator=model, param_distributions=param_distro, n_iter=num_iters, n_jobs=-1, verbose=True)
+            
+            print '\n', '... performing cross-validation', '\n'
+            
+            # cross-validate the model
+            model.fit(data)
+        else:
+            # fit the vanilla model to the data
+            model.fit(data)
+    
     else:
         raise NotImplementedError
         
@@ -441,6 +566,34 @@ def get_score(model, test_data):
     return model.score(test_data[0], test_data[1])
     
     
+def plot_predictions_ground_truth(predictions, ground_truth, handle, save_title):
+    '''
+    This function takes in the fitted model's predictions and the ground truth targets,
+    and plots the two on a line graph, to show the user the relative accuracy of the predictions.
+    
+    input:
+        prediction: the fitted model's predictions on the test data
+        ground_truth: the actual value of the engagement parameters we fitted the model to
+        
+    output:
+        A matplotlib line graph of both the predictions and the ground truth values
+    '''
+    
+    # creating the plot
+    plt.plot(range(len(predictions[:150])), np.round(predictions[:150]), 'r', label='Model Predictions')
+    plt.plot(range(len(ground_truth[:150])), ground_truth[:150], 'b', label='Ground Truth Values')
+    plt.legend()
+    plt.title('@' + handle + ': Predictions vs. Ground Truth on Test Dataset (150 Tweet Subset)')
+    plt.xlabel('Tweet Index')
+    plt.ylabel('Predictions vs. Ground Truth')
+    
+    # showing the plot
+    plt.show()
+    
+    # save the plot
+    plt.savefig('../plots/regression/' + save_title + '.png')
+    
+    
 def get_mean_abs_error(model, test_data):
     '''
     This function returns the mean absolute error of the trained model on the test dataset.
@@ -459,4 +612,53 @@ def get_mean_abs_error(model, test_data):
     
     # return mean absolute error of the trained model on the test data
     return mean_absolute_error(true_values, pred_values)
+    
+ 
+def print_top_words(model, feature_names, n_top_words):
+    '''
+    Function borrowed from scikit-learn documentation to print the top words from 
+    each of the topics.
+    '''
+    
+    # for each topic and its index
+    for topic_idx, topic in enumerate(model.components_):
+        # pint the topic index
+        print "Topic #%d:" % (topic_idx + 1)
+        # print the n_top_words top words
+        print " ".join([feature_names[i] for i in topic.argsort()[:-n_top_words - 1:-1]])
+        
+        
+def remove_outliers(features, targets):
+    '''
+    This pre-processing step removes tweets which have more than 3 standard deviations
+    more than the mean total engagement.
+    
+    input:
+        tweets: set of tweets, possibly containing grievious outliers
+        
+    output:
+        same tweets dataset, minus the outliers
+    '''
+    
+    # compute mean, standard deviation
+    mean = np.mean(targets, axis=0)
+    std = np.std(targets, axis=0)
+    
+    # return features, targets who lie within 3 standard deviations of the mean
+    # note: we only use the upper end of the interval, since the low end is
+    # typically negative (and therefore impossible)
+    idxs = np.where(targets <= (mean + 2 * std))  
+    return features[idxs], targets[idxs]
+        
+        
+def remove_link(text):
+    '''
+    Function borrowed to remove links in tweets.
+    '''
+    
+    # https regex
+    regex = r'https?://[^\s<>"]+|www\.[^\s<>"]+'
+    pattern = re.compile(regex)
+    return pattern.sub('', text)
+    
     

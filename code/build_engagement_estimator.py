@@ -10,10 +10,21 @@ author: Dan Saunders (djsaunde@umass.edu)
 
 # importing Twitter API python wrapper, argument-parser, and csv for csv manipulation
 import tweepy, csv, os, sys, cPickle as pickle
-# import helper method script
+# import helper methods
 from util import *
 
 
+############################
+# GET PARAMETERS FROM USER #
+############################
+
+print '\n'
+
+print 'Currently stored tweet datasets:', '\n'
+
+for handle in os.listdir('../data'):
+    print handle[:-11], '|',
+    
 print '\n'
 
 # get Twitter handle to build an estimator on...
@@ -36,22 +47,56 @@ test_split = 100 - train_split
 print '\n'
 
 # get regression model to use to build estimator...
-regression_method = raw_input('Enter regression model (linear regression, support vector regression, neural network regression) to use for engagement estimation: ')
+regression_method = raw_input('Enter regression model (linear regression [1], support vector regression [2], decision tree regression [3], neural network regression [4]) to use for engagement estimation: ')
+
+if regression_method == '1':
+    regression_method = 'linear regression'
+elif regression_method == '2':
+    regression_method = 'support vector regression'
+elif regression_method == '3':
+    regression_method = 'decision tree regression'
+elif regression_method == '4':
+    regression_method = 'neural network regression'
+    
 print '\n'
+    
+# extra parameters dictionary
+params = {}    
+
+# if neural network, get layer sizes
+if regression_method == 'neural network regression':
+    layer_sizes = tuple(int(layer_size) for layer_size in raw_input('Enter comma-separated list of layer sizes: ').split(','))
+    params['layer_sizes'] = layer_sizes
+    print '\n'
 
 # get feature representation...
-feature_repr = raw_input('Enter feature representation (count vectorizer, tfidf, hash vectorizer) to use: ')
+feature_repr = raw_input('Enter feature representation (count vectorizer [1], tfidf [2], hash vectorizer [3]) to use: ')
+
+if feature_repr == '1':
+    feature_repr = 'count vectorizer'
+if feature_repr == '2':
+    feature_repr = 'tfidf'
+if feature_repr == '3':
+    feature_repr = 'hash vectorizer'
+
 print '\n'
 
 # get parameter to perform regression on...
-regress_param = raw_input('Enter parameter (likes, retweets, both) to perform regression on: ')
+regress_param = raw_input('Enter parameter (likes [1], retweets [2], both [3]) to perform regression on: ')
+
 if regress_param == '':
+    regress_param = 'both'
+elif regress_param == '1':
+    regress_param = 'likes'
+elif regress_param == '2':
+    regress_param = 'retweets'
+elif regress_param == '3':
     regress_param = 'both'
     
 print '\n'
 
 # get cross validation flag...
-if regression_method in ['support vector regression', 'neural network regression']:
+if regression_method in ['support vector regression', 'decision tree regression', 'neural network regression']:
     cv_flag = raw_input('Random search cross validation (y) or standard initialization (n or hit Enter): ')
     print '\n'
 else:
@@ -68,16 +113,32 @@ elif cv_flag == 'n' or cv_flag == '':
 else:
     raise ValueError('Need (y / n / Enter) input')
     
+    
+###########################################
+# GET FEATURES, BUILD THE MODEL, EVALUATE #
+###########################################    
 
 # parse the scraped dataset into its feature representation
 features, targets, feature_extractor = get_features_and_targets_regression(handle + '_tweets.csv', regress_param, feature_repr)
+
+# remove outliers from the features, targets based on target values (can't figure out both implementation)
+if regress_param != 'both':
+    features, targets = remove_outliers(features, targets)
+
+# packing together
 dataset = (features, targets)
 
 # get the training set and test set based on input split parameter
 train_data, test_data = split_dataset(dataset, train_split, test_split)
 
+# print out shapes of data
+print 'training features shape:', train_data[0].shape, '\n'
+print 'training labels shape:', train_data[1].shape, '\n'
+print 'testing features shape:', test_data[0].shape, '\n'
+print 'testing labels shape:', test_data[1].shape, '\n'
+
 # build an estimator based on the training dataset
-model = build_regression_model(train_data, regression_method, cross_validate, num_iters)
+model = build_regression_model(train_data, regression_method, cross_validate, num_iters, params)
 
 # get model score on training set, test set
 train_score = get_score(model, train_data)
@@ -87,16 +148,19 @@ test_score = get_score(model, test_data)
 train_mean_abs_error = get_mean_abs_error(model, train_data)
 test_mean_abs_error = get_mean_abs_error(model, test_data)
 
-# print relevant information to the console
-print '---> R^2 score on training set:', train_score
-print '\n'
-print '---> R^2 score on test set:', test_score
-print '\n'
-print '---> regression mean absolute error on training set:', train_mean_abs_error
-print '\n'
-print '---> regression mean absolute error on test set:', test_mean_abs_error
-print '\n'
+# create a filename based on parameters
+fname = handle + ' ' + str(train_split) + ' ' + str(test_split) + ' ' + regression_method + ' ' + feature_repr + ' ' + regress_param + ' ' + str(num_iters) + 'cv'
 
+# print relevant information to the console
+print '---> R^2 score on training set:', train_score, '\n'
+print '---> R^2 score on test set:', test_score, '\n'
+print '---> regression mean absolute error on training set:', train_mean_abs_error, '\n'
+print '---> regression mean absolute error on test set:', test_mean_abs_error, '\n'
+print '---> mean of regression parameter(s) value:', float(np.sum(targets)) / np.prod(targets.shape), '\n'
+print '---> standard deviation of regression parameter(s) value', np.std(targets), '\n'
+
+# show the plot of predicted engagement vs. ground truth
+plot_predictions_ground_truth(model.predict(test_data[0]), test_data[1], handle, fname)
 
 # print out model parameters
 print 'Model and parameters:', model
@@ -107,9 +171,7 @@ save = raw_input('Do you want to save this model (y or Enter / n)? ')
 print '\n'
 
 if save == 'y' or save == '':
-    with open('../models/' + handle + ' ' + str(train_split) + ' ' + str(test_split)
-                    + ' ' + regression_method + ' ' + feature_repr + ' ' + regress_param
-                    + ' ' + str(num_iters) + '.p', 'wb') as f:
+    with open('../models/regression/' + fname + '.p', 'wb') as f:
         pickle.dump((model, feature_extractor), f)
 
 

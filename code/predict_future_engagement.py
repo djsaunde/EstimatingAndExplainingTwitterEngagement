@@ -23,7 +23,7 @@ while not done:
     
     print '\n'
     
-    for i, item in enumerate(os.listdir('../models')):
+    for i, item in enumerate(os.listdir('../models/regression/')):
         print i+1, item
     
     print '\n'
@@ -34,8 +34,16 @@ while not done:
     print '\n', '... loading the model', '\n'
     
     # load the model from the pickled file
-    model_name = os.listdir('../models/')[model_idx-1]
-    model, feature_extractor = pickle.load(open('../models/' + model_name, 'rb'))
+    model_name = os.listdir('../models/regression/')[model_idx-1]
+    model, feature_extractor = pickle.load(open('../models/regression/' + model_name, 'rb'))
+    
+    # get regression parameter
+    if 'likes' in model_name:
+        regress_param = 'likes'
+    elif 'retweets' in model_name:
+        regress_param = 'retweets'
+    else:
+        regress_param = '(likes, retweets)'
     
     # create flag to cease using model
     done_model = False
@@ -43,27 +51,43 @@ while not done:
     # enter into a loop until user specifies wanting to use a different model
     while not done_model:
         
-        # get sample tweet from user input
-        tweet = raw_input('Enter a tweet to make predictions on: ')
+        # storing a list of tweets (to be entered)
+        tweets = []
         
-        print tweet
+        while True:
+            # get sample tweet from user input
+            tweet = raw_input('Enter a tweet to make predictions on (or hit Enter to stop entering tweets): ')
+            
+            # if the user hit Enter only, break out of the tweet entering stage
+            if tweet == '':
+                break
+            
+            # otherwise, add the entered text into a list 
+            tweets.append(tweet)
+            
+        # if the user entered no tweets, break out of the loop
+        if len(tweets) == 0:
+            break
         
         # transform it into our feature space
-        tweet_transform = feature_extractor.transform(np.array([tweet]))
-        
-        print tweet_transform
+        tweet_transform = feature_extractor.transform(np.array(tweets))
         
         # get the raw regression score(s) from the chosen model
-        scores = model.predict(np.array([tweet_transform]))
+        scores = model.predict(tweet_transform)
         
         # round each score to the nearest integer
         for i in range(len(scores)):
             scores[i] = int(round(scores[i]))
         
-        print '\n'
-        print 'Output from regression model: ', scores
+        print '\n', 'Making predictions on the entered tweets...', '\n'
+        
+        # print out tweet and corresponding predicted engagement
+        for i in range(len(scores)):
+            print tweets[i], ':', scores[i], regress_param
         
         done_model = bool(int(raw_input('Do you want to choose a new model? (1 for yes, 0 for no) ')))
+        
+    del model
         
     print '\n'
     done = bool(int(raw_input('Do you want to quit? (1 for yes, 0 for no) ')))

@@ -36,15 +36,16 @@ api = tweepy.API(auth)
 
 # for each Twitter handle, grab as many tweets as possible
 for handle in args.handles:
-    print '\n'
-    print 'Getting Tweets for @' + handle
-    print '\n'
+    print '\n', 'Getting Tweets for @' + handle, '\n'
     
     # storing all tweets for this Twitter handle
     tweets = []
     
     # make a request for most recent tweets (this gets as many as 200 tweets)
     scraped_tweets = api.user_timeline(screen_name=handle, count=200)
+    
+    # remove first 50 tweets (to mitigate time shift a bit)
+    scraped_tweets = scraped_tweets[50:]
     
     # remove all retweets from the scraped tweets
     not_retweets = remove_retweets(scraped_tweets)
@@ -56,7 +57,8 @@ for handle in args.handles:
     oldest_ID = tweets[-1].id - 1
     
     # scrape tweets until we can scrape no more
-    while scraped_tweets:
+    while not_retweets:
+    
         print 'Getting tweets before', oldest_ID
         
         # we add the oldest ID parameter in with subsequent requests
@@ -71,7 +73,8 @@ for handle in args.handles:
         # we update the pointer to the oldest ID we've scraped so far
         oldest_ID = tweets[-1].id - 1
         
-        print len(tweets), 'Tweets downloaded so far'
+        print len(tweets), 'Tweets downloaded so far'    
+    
     
     # transform the tweepy tweets into a 2D array that will populate a csv	
 	csv_tweets = [[tweet.created_at, tweet.text.encode("utf-8"), tweet.favorite_count, tweet.retweet_count] for tweet in tweets]

@@ -9,11 +9,13 @@ author: Dan Saunders (djsaunde@umass.edu)
 
 
 # import libraries
-import sys, os, cPickle as pickle
+import sys, os, scipy, cPickle as pickle
 # import helper methods
 from util import *
 # sklearn imports
 from sklearn.metrics import silhouette_score
+# import word cloud object
+from wordcloud import WordCloud
 
 
 ############################
@@ -80,17 +82,6 @@ elif feature_repr == '3':
 
 print '\n'
 
-# whether or not to use latent semantic analysis dimensionality reduction
-use_lsa = int(raw_input('Use latent semantic analysis (1 for yes, 0 for no)? '))
-
-print '\n'
-
-lsa_components = None
-# get number of LSA components to use
-if use_lsa:
-    lsa_components = int(raw_input('Enter number of components to use for latent semantic analysis: '))
-    print '\n'
-
 # branch according to cross validation flag...
 if cv_flag == 'y':
     cross_validate = True
@@ -99,8 +90,12 @@ if cv_flag == 'y':
 elif cv_flag == 'n' or cv_flag == '':
     cross_validate = False
     num_iters = 0
+
 else:
     raise ValueError('Need (y / n / Enter) input')
+    
+# create a filename based on parameters
+fname = handle + ' ' + clustering_method + ' ' + feature_repr + ' ' + str(num_clusters) + ' ' + str(num_iters) + 'cv'
     
 
 ###########################################
@@ -108,11 +103,13 @@ else:
 ###########################################
 
 # parse the scraped dataset into its feature representation and get targets and feature extractor
-features, targets, feature_extractor = get_features_and_targets_clustering(handle + '_tweets.csv', feature_repr, use_lsa, lsa_components)
+features, targets, feature_extractor = get_features_and_targets_clustering(handle + '_tweets.csv', feature_repr)
 
 # build clustering model
-if clustering_method in ['kmeans', 'agglomerative clustering']:
+if clustering_method in ['kmeans']:
     model = build_clustering_model(features, clustering_method, cross_validate, num_iters, num_clusters)
+elif clustering_method in ['agglomerative clustering']:
+    model = build_clustering_model(features.toarray(), clustering_method, cross_validate, num_iters, num_clusters)
 else:
     model = build_clustering_model(features, clustering_method, cross_validate, num_iters)
 
@@ -124,6 +121,37 @@ if clustering_method in ['kmeans']:
 print 'Model and parameters:', model, '\n'
 
 
+########################
+# CREATE WORD CLOUD :) #
+########################
+
+# transform dataset back into terms-per-document representation
+orig_features = np.array(feature_extractor.inverse_transform(features))
+
+# get text from each cluster
+clstrs_text = []
+for clstr in xrange(model.n_clusters):
+    # get cluster indices    
+    clstr_idxs = np.where(clstr == model.labels_)
+    
+    # add all text from the cluster to the list
+    clstrs_text.append(' '.join([' '.join([' '.join(orig_features[clstr_idxs[i]][j]) for j in range(len(clstr_idxs[i]))]) for i in range(len(clstr_idxs))]))
+    
+# create a word cloud for each cluster
+for i, text in enumerate(clstrs_text):
+    # lower max_font_size
+    wordcloud = WordCloud(max_font_size=65).generate(text)
+    plt.figure()
+    plt.imshow(wordcloud)
+    plt.axis("off")
+    
+    # save the plot
+    plt.savefig('../plots/clustering/' + fname + 'cluster' + str(i) + '.png')
+    
+    # show the plot
+    plt.show()
+    
+
 ################
 # MODEL SAVING #
 ################
@@ -133,7 +161,6 @@ save = raw_input('Do you want to save this model (y or Enter / n)? ')
 print '\n'
 
 if save == 'y' or save == '':
-    with open('../models/clustering/' + handle + ' ' + clustering_method + ' ' + feature_repr + ' ' + str(num_clusters)
-                + ' ' + str(num_iters) + 'cv.p', 'wb') as f:
+    with open('../models/clustering/' + fname + '.p', 'wb') as f:
         pickle.dump((model, feature_extractor), f)
 

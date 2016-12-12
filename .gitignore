@@ -93,3 +93,6 @@ ENV/
 
 # gedit backup files
 *~
+
+# matplotlib plots
+*.png

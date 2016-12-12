@@ -114,7 +114,7 @@ def get_features_hash_vectorizer(tweets_text):
     '''
     
     # create a hashing vectorizer to transform the tweets into hash vector representation
-    hv = HashingVectorizer(n_features=2**12)
+    hv = HashingVectorizer(n_features=2**11)
     
     # use the hashing vectorizer to transform the raw text into hash vectors
     features = hv.fit_transform(tweets_text).toarray().astype(np.int32)
@@ -182,7 +182,7 @@ def get_features_and_targets_regression(filename, target_value, extr_method):
         raise NotImplementedError
         
         
-def get_features_and_targets_clustering(filename, extr_method, use_lsa, lsa_components):
+def get_features_and_targets_clustering(filename, extr_method):
     '''
     Delegate function to feature extraction in order to remove duplicate code (for 
     clustering task)
@@ -210,20 +210,7 @@ def get_features_and_targets_clustering(filename, extr_method, use_lsa, lsa_comp
     elif extr_method == 'hash vectorizer':
         features, feature_extractor = get_features_hash_vectorizer(tweets_text)
     else:
-        raise NotImplementedError
-        
-    # use LSA dimensionality reduction if specified
-    if use_lsa:
-        # create LSA (or SVD) object
-        svd = TruncatedSVD(lsa_components)
-        # create normalizer object (so k-means will behave as spherical k-means for better results)
-        normalizer = Normalizer(copy=False)
-        # create the LSA pipeline
-        lsa = make_pipeline(svd, normalizer)
-        # fit and transform the data
-        features = lsa.fit_transform(features)    
-        # add the LSA pipeline to the feature extractor
-        feature_extractor = make_pipeline(feature_extractor, lsa)    
+        raise NotImplementedError   
     
     # store the number of likes + retweets associated with each tweet in an array
     likes = [tweets_list[i][2] for i in range(len(tweets_list))]
@@ -460,6 +447,7 @@ def build_clustering_model(data, model_type, cross_validate=False, num_iters=10,
         # no scoring function implies no cross validation!
         model.fit(data)
         
+        return model
         
     elif model_type == 'kmeans':
         # instantiate model with default hyperparameter settings
@@ -468,7 +456,7 @@ def build_clustering_model(data, model_type, cross_validate=False, num_iters=10,
         if cross_validate:
             # create parameter distributions
             param_distro = {
-                    'n_clusters' : range(10, 51, 5) 
+                    'n_clusters' : range(10, 106, 5) 
                 }
             
             # create random grid search object
@@ -479,15 +467,18 @@ def build_clustering_model(data, model_type, cross_validate=False, num_iters=10,
             # cross-validate the model
             model.fit(data)
             
+            # return the best estimator from the cross-validation search
+            return model.best_estimator_
+            
         else:
             # use default parameters
             model.fit(data)
             
+            # return the model
+            return model
+            
     else:
         raise NotImplementedError
-        
-    # return the fitted / cross-validated model
-    return model
     
     
 def build_dimensionality_reduction_model(data, model_type, cross_validate=False, num_iters=10):
@@ -507,7 +498,7 @@ def build_dimensionality_reduction_model(data, model_type, cross_validate=False,
     
     if model_type == 'latent dirichlet allocation':
         # instantiate model with default hyperparameter settings
-        model = LatentDirichletAllocation()
+        model = LatentDirichletAllocation(n_topics=5)
         
         if cross_validate:
             # create parameter distributions
@@ -526,7 +517,7 @@ def build_dimensionality_reduction_model(data, model_type, cross_validate=False,
         
     elif model_type == 'non-negative matrix factorization':
         # instantiate model with default hyperparameter settings
-        model = NMF(n_components=50)
+        model = NMF(n_components=5)
         
         if cross_validate:
             # create parameter distributions
@@ -583,15 +574,15 @@ def plot_predictions_ground_truth(predictions, ground_truth, handle, save_title)
     plt.plot(range(len(predictions[:150])), np.round(predictions[:150]), 'r', label='Model Predictions')
     plt.plot(range(len(ground_truth[:150])), ground_truth[:150], 'b', label='Ground Truth Values')
     plt.legend()
-    plt.title('@' + handle + ': Predictions vs. Ground Truth on Test Dataset (150 Tweet Subset)')
+    plt.title('@' + handle + ': Predictions vs. Ground Truth on Test Dataset')
     plt.xlabel('Tweet Index')
     plt.ylabel('Predictions vs. Ground Truth')
     
-    # showing the plot
-    plt.show()
-    
     # save the plot
     plt.savefig('../plots/regression/' + save_title + '.png')
+    
+    # showing the plot
+    plt.show()
     
     
 def get_mean_abs_error(model, test_data):

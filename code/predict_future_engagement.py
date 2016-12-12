@@ -31,7 +31,7 @@ while not done:
     # get user input as to which model to use in making predictions
     model_idx = int(raw_input('Enter in the index (1, 2, 3, ...) of the model you wish to use to make predictions: '))
     
-    print '\n', '... loading the model', '\n'
+    print '\n', '... loading the model'
     
     # load the model from the pickled file
     model_name = os.listdir('../models/regression/')[model_idx-1]
@@ -50,6 +50,8 @@ while not done:
     
     # enter into a loop until user specifies wanting to use a different model
     while not done_model:
+    
+        print '\n'
         
         # storing a list of tweets (to be entered)
         tweets = []
@@ -67,7 +69,7 @@ while not done:
             
         # if the user entered no tweets, break out of the loop
         if len(tweets) == 0:
-            break
+            continue
         
         # transform it into our feature space
         tweet_transform = feature_extractor.transform(np.array(tweets))
@@ -84,6 +86,8 @@ while not done:
         # print out tweet and corresponding predicted engagement
         for i in range(len(scores)):
             print tweets[i], ':', scores[i], regress_param
+            
+        print '\n'
         
         done_model = bool(int(raw_input('Do you want to choose a new model? (1 for yes, 0 for no) ')))
         
@@ -91,6 +95,8 @@ while not done:
         
     print '\n'
     done = bool(int(raw_input('Do you want to quit? (1 for yes, 0 for no) ')))
+    
+print '\n'
     
     
     

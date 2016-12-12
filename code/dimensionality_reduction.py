@@ -3,7 +3,7 @@ Use this script to do dimensionality reduction on a set of tweets, visualize
 important aspects of the data, and explore what underlies the engagement on a 
 certain tweet dataset.
 
-sample command: python explain_tweet_engagement.py
+sample command: python dimensionality_reduction.py
 
 author: Dan Saunders (djsaunde@umass.edu)
 '''
